@@ -1,0 +1,128 @@
+use crate::app::{App, Mode, Prompt};
+use crate::highlight::{highlight_line, highlight_line_preview};
+use ratatui::layout::{Constraint, Direction, Layout, Rect};
+use ratatui::style::{Modifier, Style};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::{Block, BorderType, Borders, Paragraph};
+use ratatui::Frame;
+
+pub fn draw(frame: &mut Frame, app: &mut App) {
+    let root = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(1), Constraint::Min(3), Constraint::Length(1)])
+        .split(frame.area());
+
+    draw_titlebar(frame, app, root[0]);
+    draw_editor(frame, app, root[1]);
+    draw_statusbar(frame, app, root[2]);
+}
+
+fn draw_titlebar(frame: &mut Frame, app: &App, area: Rect) {
+    let name = app
+        .buffer
+        .path
+        .as_ref()
+        .and_then(|p| p.file_name())
+        .and_then(|n| n.to_str())
+        .unwrap_or("untitled");
+    let dirty = if app.buffer.dirty { " ●" } else { "" };
+    let mode_tag = match app.mode {
+        Mode::Edit => "EDIT",
+        Mode::Preview => "PREVIEW",
+    };
+    let title = format!(" 📓 Smarkdown — {name}{dirty}   [{mode_tag}] ");
+    let line = Line::from(Span::styled(
+        title,
+        Style::default().fg(app.config.theme.accent.resolve()).add_modifier(Modifier::BOLD),
+    ));
+    frame.render_widget(Paragraph::new(line), area);
+}
+
+fn draw_editor(frame: &mut Frame, app: &mut App, area: Rect) {
+    let theme = &app.config.theme;
+    let is_preview = app.mode == Mode::Preview;
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .border_style(Style::default().fg(theme.quote.resolve()));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    let height = inner.height as usize;
+    app.buffer.ensure_visible(height.max(1));
+
+    let total = app.buffer.lines.len();
+    let num_width = total.to_string().len().max(3) as u16;
+    let show_gutter = app.config.editor.show_line_numbers && !is_preview;
+    let show_margin = app.config.editor.notebook_margin && !is_preview;
+    let mut gutter_w = 0u16;
+    if show_gutter {
+        gutter_w += num_width + 1;
+    }
+    if show_margin {
+        gutter_w += 2;
+    }
+
+    let mut rendered: Vec<Line> = Vec::with_capacity(height);
+    let scroll = app.buffer.scroll;
+    for row in scroll..(scroll + height).min(total) {
+        let mut spans = Vec::new();
+        if show_gutter {
+            spans.push(Span::styled(
+                format!("{:>width$} ", row + 1, width = num_width as usize),
+                Style::default().fg(theme.line_number.resolve()),
+            ));
+        }
+        if show_margin {
+            spans.push(Span::styled("│ ", Style::default().fg(theme.margin_line.resolve())));
+        }
+        if is_preview {
+            spans.extend(highlight_line_preview(&app.buffer.lines[row], theme));
+        } else {
+            spans.extend(highlight_line(&app.buffer.lines[row], theme));
+        }
+        rendered.push(Line::from(spans));
+    }
+
+    frame.render_widget(Paragraph::new(rendered), inner);
+
+    if !is_preview {
+        let cursor_x = inner.x
+            + gutter_w
+            + display_width(&app.buffer.lines[app.buffer.cursor_row], app.buffer.cursor_col);
+        let cursor_y = inner.y + (app.buffer.cursor_row - scroll) as u16;
+        frame.set_cursor_position((cursor_x, cursor_y));
+    }
+}
+
+fn display_width(line: &str, col: usize) -> u16 {
+    use unicode_width::UnicodeWidthChar;
+    line.chars()
+        .take(col)
+        .map(|c| c.width().unwrap_or(1) as u16)
+        .sum()
+}
+
+fn draw_statusbar(frame: &mut Frame, app: &App, area: Rect) {
+    let theme = &app.config.theme;
+    let style = Style::default().fg(theme.status_bar_fg.resolve()).bg(theme.status_bar_bg.resolve());
+
+    let text = match &app.prompt {
+        Prompt::Open(input) => format!(" Open file: {input}_"),
+        Prompt::SaveAs(input) => format!(" Save as: {input}_"),
+        Prompt::ConfirmQuit => " Discard unsaved changes? [y/N] ".to_string(),
+        Prompt::None => {
+            let pos = format!(
+                " {}:{} ",
+                app.buffer.cursor_row + 1,
+                app.buffer.cursor_col + 1
+            );
+            let words = format!("{} words ", app.buffer.word_count());
+            let hint = " ^Tab preview  ^S save  ^O open  ^N new  ^Q quit ";
+            let msg = app.status_msg.clone().unwrap_or_default();
+            format!("{pos}│ {words}│ {msg}{hint}")
+        }
+    };
+
+    frame.render_widget(Paragraph::new(Line::from(Span::styled(text, style))), area);
+}
