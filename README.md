@@ -78,4 +78,4 @@ highlight_current_line = true
 
 ### License
 
-Not yet decided.
+MIT.
