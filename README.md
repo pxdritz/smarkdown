@@ -18,13 +18,13 @@ and inheriting its color scheme instead of forcing its own.
 ### Build
 
 ```
-cargo build --release
+cargo install smarkdown
 ```
 
 ### Run
 
 ```
-cargo run --release -- path/to/file.md
+smarkdown path/to/file.md
 ```
 
 Running without an argument opens an empty, unsaved note.
