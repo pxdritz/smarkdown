@@ -1,5 +1,11 @@
 [package]
 name = "smarkdown"
+description = "A simple markdown tui editor, simple, fast, good!"
+readme = "README.md"
+repository = "https://github.com/pxdritz/smarkdown/"
+license = "MIT"
+keywords = ["markdown", "editor", "text", "vim", "nano", "micro"]
+categories = ["command-line-utilities"]
 version = "0.1.0"
 edition = "2021"
 
