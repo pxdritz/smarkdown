@@ -14,8 +14,9 @@ and inheriting its color scheme instead of forcing its own.
 - Preview mode with rendered markdown, toggled with `Ctrl+Tab`
 - Markdown tables and hyperlinks, rendered nicely in preview
 - Click a hyperlink to open it in your default browser
-- Text selection (`Ctrl+A`, `Shift+Arrows`), copy/cut/paste through the system clipboard
-- Toggleable word wrap (`Shift+Q`)
+- Text selection (`Ctrl+A`, `Shift+Arrows`, mouse drag), copy/cut/paste through the system clipboard
+- Undo (`Ctrl+Z`)
+- Toggleable word wrap (`Shift+Q`); when off, the view scrolls horizontally to follow the cursor, nano/micro-style
 - Auto-closing pairs for `()`, `[]`, `{}`, `"`, `'`, `` ` ``, `*`, `_`
 - Configuration through a TOML file, no recompiling needed
 
@@ -44,8 +45,9 @@ Running without an argument opens an empty, unsaved note.
 | `Ctrl+Tab` | Toggle Edit / Preview mode |
 | `Shift+Q` | Toggle word wrap |
 | `Ctrl+A` | Select all |
-| `Shift+Arrows` | Extend selection |
+| `Shift+Arrows` / mouse drag | Select text |
 | `Ctrl+C` / `Ctrl+X` / `Ctrl+V` | Copy / cut / paste |
+| `Ctrl+Z` | Undo |
 | Click on a link (Edit mode) | Open it in your browser |
 
 `Ctrl+Tab` requires a terminal that supports the Kitty keyboard protocol

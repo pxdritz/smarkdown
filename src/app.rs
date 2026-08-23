@@ -25,6 +25,7 @@ pub struct App {
     pub should_quit: bool,
     pub editor_area: Rect,
     pub gutter_width: u16,
+    pub mouse_down_pos: Option<(usize, usize)>,
 }
 
 impl App {
@@ -38,6 +39,7 @@ impl App {
             should_quit: false,
             editor_area: Rect::default(),
             gutter_width: 0,
+            mouse_down_pos: None,
         }
     }
 
@@ -60,33 +62,62 @@ use std::path::PathBuf;
 
 impl App {
     pub fn handle_mouse(&mut self, mouse: MouseEvent) {
-        if !matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left)) {
-            return;
-        }
         if self.mode != Mode::Edit || self.prompt != Prompt::None {
             return;
         }
+        match mouse.kind {
+            MouseEventKind::Down(MouseButton::Left) => {
+                if let Some((row, col)) = self.buffer_pos_at(mouse.column, mouse.row) {
+                    self.buffer.cursor_row = row;
+                    self.buffer.cursor_col = col;
+                    self.buffer.selection_anchor = Some((row, col));
+                    self.mouse_down_pos = Some((row, col));
+                }
+            }
+            MouseEventKind::Drag(MouseButton::Left) => {
+                if let Some((row, col)) = self.buffer_pos_at(mouse.column, mouse.row) {
+                    self.buffer.cursor_row = row;
+                    self.buffer.cursor_col = col;
+                }
+            }
+            MouseEventKind::Up(MouseButton::Left) => {
+                if let Some((row, col)) = self.buffer_pos_at(mouse.column, mouse.row) {
+                    let moved = self.mouse_down_pos != Some((row, col));
+                    if !moved {
+                        self.buffer.selection_anchor = None;
+                        let line = &self.buffer.lines[row];
+                        if let Some(url) = link::find_link_at(line, col) {
+                            link::open_url(&url);
+                            self.set_status(format!("Opened: {url}"));
+                        }
+                    }
+                }
+                if self.buffer.selection_range().is_none() {
+                    self.buffer.selection_anchor = None;
+                }
+                self.mouse_down_pos = None;
+            }
+            _ => {}
+        }
+    }
+
+    fn buffer_pos_at(&self, col: u16, row: u16) -> Option<(usize, usize)> {
         let area = self.editor_area;
-        if mouse.column < area.x
-            || mouse.column >= area.x + area.width
-            || mouse.row < area.y
-            || mouse.row >= area.y + area.height
-        {
-            return;
+        if col < area.x || col >= area.x + area.width || row < area.y || row >= area.y + area.height {
+            return None;
         }
-        let rel_col = mouse.column - area.x;
-        let rel_row = (mouse.row - area.y) as usize;
-        let row = self.buffer.scroll + rel_row;
-        if row >= self.buffer.lines.len() || rel_col < self.gutter_width {
-            return;
+        let rel_col = col - area.x;
+        let rel_row = (row - area.y) as usize;
+        if self.buffer.lines.is_empty() {
+            return None;
         }
-        let text_col = rel_col - self.gutter_width;
-        let line = &self.buffer.lines[row];
-        let char_idx = char_index_at_display_col(line, text_col);
-        if let Some(url) = link::find_link_at(line, char_idx) {
-            link::open_url(&url);
-            self.set_status(format!("Opened: {url}"));
+        let buf_row = (self.buffer.scroll + rel_row).min(self.buffer.lines.len() - 1);
+        if rel_col < self.gutter_width {
+            return Some((buf_row, 0));
         }
+        let text_col = rel_col - self.gutter_width + self.buffer.scroll_x;
+        let line = &self.buffer.lines[buf_row];
+        Some((buf_row, char_index_at_display_col(line, text_col)))
     }
 
     pub fn handle_key(&mut self, key: KeyEvent) {
@@ -142,23 +173,34 @@ impl App {
             KeyCode::Char('c') if ctrl => self.copy_selection(),
             KeyCode::Char('x') if ctrl => self.cut_selection(),
             KeyCode::Char('v') if ctrl => self.paste_clipboard(),
+            KeyCode::Char('z') if ctrl => {
+                if self.buffer.undo() {
+                    self.set_status("Undo");
+                } else {
+                    self.set_status("Nothing to undo");
+                }
+            }
             KeyCode::Char(c) if ctrl => {
                 let _ = c;
             }
             KeyCode::Char(c) => {
+                self.buffer.snapshot();
                 self.buffer.delete_selection();
                 self.handle_char_input(c);
             }
             KeyCode::Enter => {
+                self.buffer.snapshot();
                 self.buffer.delete_selection();
                 self.buffer.insert_newline();
             }
             KeyCode::Backspace => {
+                self.buffer.snapshot();
                 if !self.buffer.delete_selection() {
                     self.handle_backspace();
                 }
             }
             KeyCode::Delete => {
+                self.buffer.snapshot();
                 if !self.buffer.delete_selection() {
                     self.buffer.delete_forward();
                 }
@@ -188,6 +230,7 @@ impl App {
                 self.buffer.cursor_col = self.buffer.lines[self.buffer.cursor_row].chars().count()
             }
             KeyCode::Tab => {
+                self.buffer.snapshot();
                 self.buffer.delete_selection();
                 for _ in 0..self.config.editor.tab_spaces {
                     self.buffer.insert_char(' ');
@@ -223,6 +266,7 @@ impl App {
         };
         match arboard::Clipboard::new().and_then(|mut cb| cb.set_text(text)) {
             Ok(_) => {
+                self.buffer.snapshot();
                 self.buffer.delete_selection();
                 self.set_status("Cut.");
             }
@@ -233,6 +277,7 @@ impl App {
     fn paste_clipboard(&mut self) {
         match arboard::Clipboard::new().and_then(|mut cb| cb.get_text()) {
             Ok(text) => {
+                self.buffer.snapshot();
                 self.buffer.delete_selection();
                 self.buffer.insert_text(&text);
                 self.set_status("Pasted.");

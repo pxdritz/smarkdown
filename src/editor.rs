@@ -5,9 +5,11 @@ pub struct Buffer {
     pub cursor_row: usize,
     pub cursor_col: usize,
     pub scroll: usize,
+    pub scroll_x: u16,
     pub path: Option<PathBuf>,
     pub dirty: bool,
     pub selection_anchor: Option<(usize, usize)>,
+    pub undo_stack: Vec<(Vec<String>, usize, usize)>,
 }
 
 impl Default for Buffer {
@@ -17,9 +19,11 @@ impl Default for Buffer {
             cursor_row: 0,
             cursor_col: 0,
             scroll: 0,
+            scroll_x: 0,
             path: None,
             dirty: false,
             selection_anchor: None,
+            undo_stack: Vec::new(),
         }
     }
 }
@@ -152,6 +156,37 @@ impl Buffer {
         } else if self.cursor_row >= self.scroll + height {
             self.scroll = self.cursor_row + 1 - height;
         }
+    }
+
+    pub fn ensure_visible_x(&mut self, width: u16) {
+        if width == 0 {
+            return;
+        }
+        let cursor_col = display_width(&self.lines[self.cursor_row], self.cursor_col);
+        if cursor_col < self.scroll_x {
+            self.scroll_x = cursor_col;
+        } else if cursor_col >= self.scroll_x + width {
+            self.scroll_x = cursor_col + 1 - width;
+        }
+    }
+
+    pub fn snapshot(&mut self) {
+        self.undo_stack.push((self.lines.clone(), self.cursor_row, self.cursor_col));
+        if self.undo_stack.len() > 200 {
+            self.undo_stack.remove(0);
+        }
+    }
+
+    pub fn undo(&mut self) -> bool {
+        let Some((lines, row, col)) = self.undo_stack.pop() else {
+            return false;
+        };
+        self.lines = lines;
+        self.cursor_row = row.min(self.lines.len() - 1);
+        self.cursor_col = col.min(self.line_chars(self.cursor_row).len());
+        self.selection_anchor = None;
+        self.dirty = true;
+        true
     }
 
     pub fn select_all(&mut self) {

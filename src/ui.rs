@@ -1,5 +1,5 @@
 use crate::app::{App, Mode, Prompt};
-use crate::editor::display_width;
+use crate::editor::{char_index_at_display_col, display_width};
 use crate::highlight::{highlight_line, highlight_line_preview};
 use crate::table::{self, Table};
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
@@ -68,6 +68,13 @@ fn draw_editor(frame: &mut Frame, app: &mut App, area: Rect) {
     app.editor_area = inner;
     app.gutter_width = gutter_w;
 
+    let text_width = inner.width.saturating_sub(gutter_w);
+    if app.config.editor.word_wrap || is_preview {
+        app.buffer.scroll_x = 0;
+    } else {
+        app.buffer.ensure_visible_x(text_width);
+    }
+
     let tables: Vec<Table> = if is_preview {
         table::detect_tables(&app.buffer.lines)
     } else {
@@ -94,13 +101,16 @@ fn draw_editor(frame: &mut Frame, app: &mut App, area: Rect) {
         }
         let content_spans = if is_preview {
             highlight_line_preview(&app.buffer.lines[row], theme)
+        } else if app.buffer.scroll_x > 0 {
+            let skip = char_index_at_display_col(&app.buffer.lines[row], app.buffer.scroll_x);
+            let visible: String = app.buffer.lines[row].chars().skip(skip).collect();
+            let base = highlight_line(&visible, theme);
+            let sel = selection_cols_for_row(&app.buffer, row)
+                .map(|(s, e)| (s.saturating_sub(skip), e.saturating_sub(skip)));
+            apply_selection(base, sel, theme)
         } else {
-            highlight_line(&app.buffer.lines[row], theme)
-        };
-        let content_spans = if is_preview {
-            content_spans
-        } else {
-            apply_selection(content_spans, selection_cols_for_row(&app.buffer, row), theme)
+            let base = highlight_line(&app.buffer.lines[row], theme);
+            apply_selection(base, selection_cols_for_row(&app.buffer, row), theme)
         };
         spans.extend(content_spans);
         rendered.push(Line::from(spans));
@@ -115,9 +125,9 @@ fn draw_editor(frame: &mut Frame, app: &mut App, area: Rect) {
     frame.render_widget(paragraph, inner);
 
     if !is_preview {
-        let cursor_x = inner.x
-            + gutter_w
-            + display_width(&app.buffer.lines[app.buffer.cursor_row], app.buffer.cursor_col);
+        let cursor_display_col =
+            display_width(&app.buffer.lines[app.buffer.cursor_row], app.buffer.cursor_col);
+        let cursor_x = inner.x + gutter_w + cursor_display_col.saturating_sub(app.buffer.scroll_x);
         let cursor_y = inner.y + (app.buffer.cursor_row - scroll) as u16;
         frame.set_cursor_position((cursor_x, cursor_y));
     }
@@ -138,7 +148,7 @@ fn draw_statusbar(frame: &mut Frame, app: &App, area: Rect) {
                 app.buffer.cursor_col + 1
             );
             let words = format!("{} words ", app.buffer.word_count());
-            let hint = " ^Tab preview  ^S save  ^O open  ^N new  ^Q quit ";
+            let hint = " ^Tab preview  ^S save  ^O open  ^N new  ^Z undo  ^Q quit ";
             let msg = app.status_msg.clone().unwrap_or_default();
             format!("{pos}│ {words}│ {msg}{hint}")
         }
