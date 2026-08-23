@@ -16,6 +16,7 @@ serde = { version = "1", features = ["derive"] }
 toml = "0.8"
 dirs = "5"
 unicode-width = "0.2"
+arboard = { version = "3", default-features = false, features = ["wayland-data-control"] }
 
 [profile.release]
 opt-level = "s"

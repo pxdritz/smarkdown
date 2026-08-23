@@ -92,11 +92,17 @@ fn draw_editor(frame: &mut Frame, app: &mut App, area: Rect) {
         if show_margin {
             spans.push(Span::styled("│ ", Style::default().fg(theme.margin_line.resolve())));
         }
-        if is_preview {
-            spans.extend(highlight_line_preview(&app.buffer.lines[row], theme));
+        let content_spans = if is_preview {
+            highlight_line_preview(&app.buffer.lines[row], theme)
         } else {
-            spans.extend(highlight_line(&app.buffer.lines[row], theme));
-        }
+            highlight_line(&app.buffer.lines[row], theme)
+        };
+        let content_spans = if is_preview {
+            content_spans
+        } else {
+            apply_selection(content_spans, selection_cols_for_row(&app.buffer, row), theme)
+        };
+        spans.extend(content_spans);
         rendered.push(Line::from(spans));
     }
 
@@ -139,4 +145,43 @@ fn draw_statusbar(frame: &mut Frame, app: &App, area: Rect) {
     };
 
     frame.render_widget(Paragraph::new(Line::from(Span::styled(text, style))), area);
+}
+
+fn selection_cols_for_row(buffer: &crate::editor::Buffer, row: usize) -> Option<(usize, usize)> {
+    let ((sr, sc), (er, ec)) = buffer.selection_range()?;
+    if row < sr || row > er {
+        return None;
+    }
+    let start = if row == sr { sc } else { 0 };
+    let end = if row == er {
+        ec
+    } else {
+        buffer.lines[row].chars().count()
+    };
+    Some((start, end))
+}
+
+fn apply_selection<'a>(
+    spans: Vec<Span<'a>>,
+    sel: Option<(usize, usize)>,
+    theme: &crate::config::ThemeConfig,
+) -> Vec<Span<'static>> {
+    let Some((start, end)) = sel else {
+        return spans.into_iter().map(|s| Span::styled(s.content.to_string(), s.style)).collect();
+    };
+    let sel_bg = theme.accent.resolve();
+    let mut result = Vec::new();
+    let mut col = 0usize;
+    for span in spans {
+        for ch in span.content.chars() {
+            let style = if col >= start && col < end {
+                span.style.bg(sel_bg)
+            } else {
+                span.style
+            };
+            result.push(Span::styled(ch.to_string(), style));
+            col += 1;
+        }
+    }
+    result
 }

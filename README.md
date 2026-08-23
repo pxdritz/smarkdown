@@ -12,6 +12,10 @@ and inheriting its color scheme instead of forcing its own.
 - Notebook-style layout: line numbers and a red margin rule
 - Inline markdown highlighting while editing (`#`, `**bold**`, `*italic*`, `` `code` ``, `> quote`)
 - Preview mode with rendered markdown, toggled with `Ctrl+Tab`
+- Markdown tables and hyperlinks, rendered nicely in preview
+- Click a hyperlink to open it in your default browser
+- Text selection (`Ctrl+A`, `Shift+Arrows`), copy/cut/paste through the system clipboard
+- Toggleable word wrap (`Shift+Q`)
 - Auto-closing pairs for `()`, `[]`, `{}`, `"`, `'`, `` ` ``, `*`, `_`
 - Configuration through a TOML file, no recompiling needed
 
@@ -38,6 +42,11 @@ Running without an argument opens an empty, unsaved note.
 | `Ctrl+N` | New note |
 | `Ctrl+Q` | Quit |
 | `Ctrl+Tab` | Toggle Edit / Preview mode |
+| `Shift+Q` | Toggle word wrap |
+| `Ctrl+A` | Select all |
+| `Shift+Arrows` | Extend selection |
+| `Ctrl+C` / `Ctrl+X` / `Ctrl+V` | Copy / cut / paste |
+| Click on a link (Edit mode) | Open it in your browser |
 
 `Ctrl+Tab` requires a terminal that supports the Kitty keyboard protocol
 (Alacritty, kitty, WezTerm, and others). On terminals without it, plain

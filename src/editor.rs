@@ -7,6 +7,7 @@ pub struct Buffer {
     pub scroll: usize,
     pub path: Option<PathBuf>,
     pub dirty: bool,
+    pub selection_anchor: Option<(usize, usize)>,
 }
 
 impl Default for Buffer {
@@ -18,6 +19,7 @@ impl Default for Buffer {
             scroll: 0,
             path: None,
             dirty: false,
+            selection_anchor: None,
         }
     }
 }
@@ -149,6 +151,96 @@ impl Buffer {
             self.scroll = self.cursor_row;
         } else if self.cursor_row >= self.scroll + height {
             self.scroll = self.cursor_row + 1 - height;
+        }
+    }
+
+    pub fn select_all(&mut self) {
+        self.selection_anchor = Some((0, 0));
+        self.cursor_row = self.lines.len() - 1;
+        self.cursor_col = self.line_chars(self.cursor_row).len();
+    }
+
+    pub fn start_selection_if_needed(&mut self) {
+        if self.selection_anchor.is_none() {
+            self.selection_anchor = Some((self.cursor_row, self.cursor_col));
+        }
+    }
+
+    pub fn clear_selection(&mut self) {
+        self.selection_anchor = None;
+    }
+
+    pub fn selection_range(&self) -> Option<((usize, usize), (usize, usize))> {
+        let anchor = self.selection_anchor?;
+        let cursor = (self.cursor_row, self.cursor_col);
+        if anchor == cursor {
+            return None;
+        }
+        if anchor <= cursor {
+            Some((anchor, cursor))
+        } else {
+            Some((cursor, anchor))
+        }
+    }
+
+    pub fn selected_text(&self) -> Option<String> {
+        let ((sr, sc), (er, ec)) = self.selection_range()?;
+        if sr == er {
+            let chars = self.line_chars(sr);
+            let sc = sc.min(chars.len());
+            let ec = ec.min(chars.len());
+            return Some(chars[sc..ec].iter().collect());
+        }
+        let mut out = String::new();
+        let first = self.line_chars(sr);
+        let sc = sc.min(first.len());
+        out.push_str(&first[sc..].iter().collect::<String>());
+        out.push('\n');
+        for row in sr + 1..er {
+            out.push_str(&self.lines[row]);
+            out.push('\n');
+        }
+        let last = self.line_chars(er);
+        let ec = ec.min(last.len());
+        out.push_str(&last[..ec].iter().collect::<String>());
+        Some(out)
+    }
+
+    pub fn delete_selection(&mut self) -> bool {
+        let Some(((sr, sc), (er, ec))) = self.selection_range() else {
+            return false;
+        };
+        if sr == er {
+            let mut chars = self.line_chars(sr);
+            let sc = sc.min(chars.len());
+            let ec = ec.min(chars.len());
+            chars.drain(sc..ec);
+            self.lines[sr] = chars.into_iter().collect();
+        } else {
+            let first = self.line_chars(sr);
+            let sc = sc.min(first.len());
+            let head: String = first[..sc].iter().collect();
+            let last = self.line_chars(er);
+            let ec = ec.min(last.len());
+            let tail: String = last[ec..].iter().collect();
+            self.lines.drain(sr + 1..=er);
+            self.lines[sr] = format!("{head}{tail}");
+        }
+        self.cursor_row = sr;
+        self.cursor_col = sc;
+        self.selection_anchor = None;
+        self.dirty = true;
+        true
+    }
+
+    pub fn insert_text(&mut self, text: &str) {
+        for (i, part) in text.split('\n').enumerate() {
+            if i > 0 {
+                self.insert_newline();
+            }
+            for c in part.chars() {
+                self.insert_char(c);
+            }
         }
     }
 }

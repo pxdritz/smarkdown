@@ -131,30 +131,113 @@ impl App {
     }
 
     fn handle_edit_key(&mut self, key: KeyEvent, ctrl: bool) {
+        let shift = key.modifiers.contains(KeyModifiers::SHIFT);
         match key.code {
             KeyCode::Char('o') if ctrl => self.prompt = Prompt::Open(String::new()),
             KeyCode::Char('n') if ctrl => {
                 self.buffer = Buffer::default();
                 self.set_status("New note");
             }
-            KeyCode::Char(c) => self.handle_char_input(c),
-            KeyCode::Enter => self.buffer.insert_newline(),
-            KeyCode::Backspace => self.handle_backspace(),
-            KeyCode::Delete => self.buffer.delete_forward(),
-            KeyCode::Left => self.buffer.move_left(),
-            KeyCode::Right => self.buffer.move_right(),
-            KeyCode::Up => self.buffer.move_up(),
-            KeyCode::Down => self.buffer.move_down(),
-            KeyCode::Home => self.buffer.cursor_col = 0,
+            KeyCode::Char('a') if ctrl => self.buffer.select_all(),
+            KeyCode::Char('c') if ctrl => self.copy_selection(),
+            KeyCode::Char('x') if ctrl => self.cut_selection(),
+            KeyCode::Char('v') if ctrl => self.paste_clipboard(),
+            KeyCode::Char(c) if ctrl => {
+                let _ = c;
+            }
+            KeyCode::Char(c) => {
+                self.buffer.delete_selection();
+                self.handle_char_input(c);
+            }
+            KeyCode::Enter => {
+                self.buffer.delete_selection();
+                self.buffer.insert_newline();
+            }
+            KeyCode::Backspace => {
+                if !self.buffer.delete_selection() {
+                    self.handle_backspace();
+                }
+            }
+            KeyCode::Delete => {
+                if !self.buffer.delete_selection() {
+                    self.buffer.delete_forward();
+                }
+            }
+            KeyCode::Left => {
+                self.selecting(shift);
+                self.buffer.move_left();
+            }
+            KeyCode::Right => {
+                self.selecting(shift);
+                self.buffer.move_right();
+            }
+            KeyCode::Up => {
+                self.selecting(shift);
+                self.buffer.move_up();
+            }
+            KeyCode::Down => {
+                self.selecting(shift);
+                self.buffer.move_down();
+            }
+            KeyCode::Home => {
+                self.buffer.clear_selection();
+                self.buffer.cursor_col = 0;
+            }
             KeyCode::End => {
+                self.buffer.clear_selection();
                 self.buffer.cursor_col = self.buffer.lines[self.buffer.cursor_row].chars().count()
             }
             KeyCode::Tab => {
+                self.buffer.delete_selection();
                 for _ in 0..self.config.editor.tab_spaces {
                     self.buffer.insert_char(' ');
                 }
             }
             _ => {}
+        }
+    }
+
+    fn selecting(&mut self, shift: bool) {
+        if shift {
+            self.buffer.start_selection_if_needed();
+        } else {
+            self.buffer.clear_selection();
+        }
+    }
+
+    fn copy_selection(&mut self) {
+        let Some(text) = self.buffer.selected_text() else {
+            self.set_status("Nothing selected");
+            return;
+        };
+        match arboard::Clipboard::new().and_then(|mut cb| cb.set_text(text)) {
+            Ok(_) => self.set_status("Copied."),
+            Err(e) => self.set_status(format!("Clipboard error: {e}")),
+        }
+    }
+
+    fn cut_selection(&mut self) {
+        let Some(text) = self.buffer.selected_text() else {
+            self.set_status("Nothing selected");
+            return;
+        };
+        match arboard::Clipboard::new().and_then(|mut cb| cb.set_text(text)) {
+            Ok(_) => {
+                self.buffer.delete_selection();
+                self.set_status("Cut.");
+            }
+            Err(e) => self.set_status(format!("Clipboard error: {e}")),
+        }
+    }
+
+    fn paste_clipboard(&mut self) {
+        match arboard::Clipboard::new().and_then(|mut cb| cb.get_text()) {
+            Ok(text) => {
+                self.buffer.delete_selection();
+                self.buffer.insert_text(&text);
+                self.set_status("Pasted.");
+            }
+            Err(e) => self.set_status(format!("Clipboard error: {e}")),
         }
     }
 
