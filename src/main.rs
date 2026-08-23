@@ -2,6 +2,7 @@ mod app;
 mod config;
 mod editor;
 mod highlight;
+mod table;
 mod ui;
 
 use app::App;

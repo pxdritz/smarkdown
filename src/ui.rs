@@ -1,5 +1,6 @@
 use crate::app::{App, Mode, Prompt};
 use crate::highlight::{highlight_line, highlight_line_preview};
+use crate::table::{self, Table};
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
@@ -63,9 +64,20 @@ fn draw_editor(frame: &mut Frame, app: &mut App, area: Rect) {
         gutter_w += 2;
     }
 
+    let tables: Vec<Table> = if is_preview {
+        table::detect_tables(&app.buffer.lines)
+    } else {
+        Vec::new()
+    };
+
     let mut rendered: Vec<Line> = Vec::with_capacity(height);
     let scroll = app.buffer.scroll;
     for row in scroll..(scroll + height).min(total) {
+        if let Some(t) = tables.iter().find(|t| row >= t.start && row < t.end) {
+            rendered.push(table::render_row(t, row, theme));
+            continue;
+        }
+
         let mut spans = Vec::new();
         if show_gutter {
             spans.push(Span::styled(

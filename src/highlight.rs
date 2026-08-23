@@ -99,6 +99,27 @@ fn highlight_inline<'a>(
                 continue;
             }
         }
+        if bytes[i] == b'[' {
+            if let Some(bracket_end) = line[i + 1..].find(']') {
+                let text_end = i + 1 + bracket_end;
+                if bytes.get(text_end + 1) == Some(&b'(') {
+                    if let Some(paren_len) = line[text_end + 2..].find(')') {
+                        let paren_end = text_end + 2 + paren_len;
+                        flush_plain!(i);
+                        let link_text = &line[i + 1..text_end];
+                        let full = &line[i..=paren_end];
+                        let text = if keep_markers { full } else { link_text };
+                        spans.push(Span::styled(
+                            text,
+                            Style::default().fg(theme.link.resolve()).add_modifier(Modifier::UNDERLINED),
+                        ));
+                        i = paren_end + 1;
+                        start = i;
+                        continue;
+                    }
+                }
+            }
+        }
         if bytes[i] == b'`' {
             if let Some(end) = line[i + 1..].find('`') {
                 flush_plain!(i);
