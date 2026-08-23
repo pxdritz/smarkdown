@@ -1,10 +1,11 @@
 use crate::app::{App, Mode, Prompt};
+use crate::editor::display_width;
 use crate::highlight::{highlight_line, highlight_line_preview};
 use crate::table::{self, Table};
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, BorderType, Borders, Paragraph};
+use ratatui::widgets::{Block, BorderType, Borders, Paragraph, Wrap};
 use ratatui::Frame;
 
 pub fn draw(frame: &mut Frame, app: &mut App) {
@@ -64,6 +65,9 @@ fn draw_editor(frame: &mut Frame, app: &mut App, area: Rect) {
         gutter_w += 2;
     }
 
+    app.editor_area = inner;
+    app.gutter_width = gutter_w;
+
     let tables: Vec<Table> = if is_preview {
         table::detect_tables(&app.buffer.lines)
     } else {
@@ -96,7 +100,13 @@ fn draw_editor(frame: &mut Frame, app: &mut App, area: Rect) {
         rendered.push(Line::from(spans));
     }
 
-    frame.render_widget(Paragraph::new(rendered), inner);
+    let paragraph = Paragraph::new(rendered);
+    let paragraph = if app.config.editor.word_wrap {
+        paragraph.wrap(Wrap { trim: false })
+    } else {
+        paragraph
+    };
+    frame.render_widget(paragraph, inner);
 
     if !is_preview {
         let cursor_x = inner.x
@@ -105,14 +115,6 @@ fn draw_editor(frame: &mut Frame, app: &mut App, area: Rect) {
         let cursor_y = inner.y + (app.buffer.cursor_row - scroll) as u16;
         frame.set_cursor_position((cursor_x, cursor_y));
     }
-}
-
-fn display_width(line: &str, col: usize) -> u16 {
-    use unicode_width::UnicodeWidthChar;
-    line.chars()
-        .take(col)
-        .map(|c| c.width().unwrap_or(1) as u16)
-        .sum()
 }
 
 fn draw_statusbar(frame: &mut Frame, app: &App, area: Rect) {

@@ -1,5 +1,6 @@
 use crate::config::Config;
 use crate::editor::Buffer;
+use ratatui::layout::Rect;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Mode {
@@ -22,6 +23,8 @@ pub struct App {
     pub prompt: Prompt,
     pub status_msg: Option<String>,
     pub should_quit: bool,
+    pub editor_area: Rect,
+    pub gutter_width: u16,
 }
 
 impl App {
@@ -33,6 +36,8 @@ impl App {
             prompt: Prompt::None,
             status_msg: None,
             should_quit: false,
+            editor_area: Rect::default(),
+            gutter_width: 0,
         }
     }
 
@@ -48,10 +53,42 @@ impl App {
     }
 }
 
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crate::editor::char_index_at_display_col;
+use crate::link;
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use std::path::PathBuf;
 
 impl App {
+    pub fn handle_mouse(&mut self, mouse: MouseEvent) {
+        if !matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left)) {
+            return;
+        }
+        if self.mode != Mode::Edit || self.prompt != Prompt::None {
+            return;
+        }
+        let area = self.editor_area;
+        if mouse.column < area.x
+            || mouse.column >= area.x + area.width
+            || mouse.row < area.y
+            || mouse.row >= area.y + area.height
+        {
+            return;
+        }
+        let rel_col = mouse.column - area.x;
+        let rel_row = (mouse.row - area.y) as usize;
+        let row = self.buffer.scroll + rel_row;
+        if row >= self.buffer.lines.len() || rel_col < self.gutter_width {
+            return;
+        }
+        let text_col = rel_col - self.gutter_width;
+        let line = &self.buffer.lines[row];
+        let char_idx = char_index_at_display_col(line, text_col);
+        if let Some(url) = link::find_link_at(line, char_idx) {
+            link::open_url(&url);
+            self.set_status(format!("Opened: {url}"));
+        }
+    }
+
     pub fn handle_key(&mut self, key: KeyEvent) {
         if self.prompt != Prompt::None {
             self.handle_prompt_key(key);
@@ -75,6 +112,13 @@ impl App {
                 } else {
                     self.should_quit = true;
                 }
+                return;
+            }
+            KeyCode::Char('Q') if key.modifiers.contains(KeyModifiers::SHIFT) && !ctrl => {
+                self.config.editor.word_wrap = !self.config.editor.word_wrap;
+                self.config.save();
+                let state = if self.config.editor.word_wrap { "on" } else { "off" };
+                self.set_status(format!("Word wrap: {state}"));
                 return;
             }
             _ => {}

@@ -152,3 +152,24 @@ impl Buffer {
         }
     }
 }
+
+pub fn display_width(line: &str, col: usize) -> u16 {
+    use unicode_width::UnicodeWidthChar;
+    line.chars()
+        .take(col)
+        .map(|c| c.width().unwrap_or(1) as u16)
+        .sum()
+}
+
+pub fn char_index_at_display_col(line: &str, target_col: u16) -> usize {
+    use unicode_width::UnicodeWidthChar;
+    let mut width = 0u16;
+    for (idx, c) in line.chars().enumerate() {
+        let w = c.width().unwrap_or(1) as u16;
+        if width + w > target_col {
+            return idx;
+        }
+        width += w;
+    }
+    line.chars().count()
+}
