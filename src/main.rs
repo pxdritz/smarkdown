@@ -5,6 +5,7 @@ mod highlight;
 mod link;
 mod table;
 mod ui;
+mod wrap;
 
 use app::App;
 use config::Config;

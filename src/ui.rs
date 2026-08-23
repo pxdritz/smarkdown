@@ -1,11 +1,12 @@
 use crate::app::{App, Mode, Prompt};
-use crate::editor::{char_index_at_display_col, display_width};
+use crate::editor::{char_index_at_display_col, display_width, Buffer};
 use crate::highlight::{highlight_line, highlight_line_preview};
 use crate::table::{self, Table};
+use crate::wrap::{ensure_visible_generic, wrap_segments};
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, BorderType, Borders, Paragraph, Wrap};
+use ratatui::widgets::{Block, BorderType, Borders, Paragraph};
 use ratatui::Frame;
 
 pub fn draw(frame: &mut Frame, app: &mut App) {
@@ -41,7 +42,8 @@ fn draw_titlebar(frame: &mut Frame, app: &App, area: Rect) {
 }
 
 fn draw_editor(frame: &mut Frame, app: &mut App, area: Rect) {
-    let theme = &app.config.theme;
+    let theme = app.config.theme.clone();
+    let theme = &theme;
     let is_preview = app.mode == Mode::Preview;
     let block = Block::default()
         .borders(Borders::ALL)
@@ -51,8 +53,6 @@ fn draw_editor(frame: &mut Frame, app: &mut App, area: Rect) {
     frame.render_widget(block, area);
 
     let height = inner.height as usize;
-    app.buffer.ensure_visible(height.max(1));
-
     let total = app.buffer.lines.len();
     let num_width = total.to_string().len().max(3) as u16;
     let show_gutter = app.config.editor.show_line_numbers && !is_preview;
@@ -68,19 +68,28 @@ fn draw_editor(frame: &mut Frame, app: &mut App, area: Rect) {
     app.editor_area = inner;
     app.gutter_width = gutter_w;
 
-    let text_width = inner.width.saturating_sub(gutter_w);
-    if app.config.editor.word_wrap || is_preview {
-        app.buffer.scroll_x = 0;
+    if is_preview {
+        app.buffer.ensure_visible(height.max(1));
+        draw_preview(frame, app, inner, theme, height, total, num_width, gutter_w);
+    } else if app.config.editor.word_wrap {
+        draw_edit_wrapped(frame, app, inner, theme, height, num_width, show_gutter, show_margin, gutter_w);
     } else {
-        app.buffer.ensure_visible_x(text_width);
+        app.buffer.ensure_visible(height.max(1));
+        draw_edit_plain(frame, app, inner, theme, height, total, num_width, show_gutter, show_margin, gutter_w);
     }
+}
 
-    let tables: Vec<Table> = if is_preview {
-        table::detect_tables(&app.buffer.lines)
-    } else {
-        Vec::new()
-    };
-
+fn draw_preview(
+    frame: &mut Frame,
+    app: &App,
+    inner: Rect,
+    theme: &crate::config::ThemeConfig,
+    height: usize,
+    total: usize,
+    _num_width: u16,
+    _gutter_w: u16,
+) {
+    let tables: Vec<Table> = table::detect_tables(&app.buffer.lines);
     let mut rendered: Vec<Line> = Vec::with_capacity(height);
     let scroll = app.buffer.scroll;
     for row in scroll..(scroll + height).min(total) {
@@ -88,7 +97,29 @@ fn draw_editor(frame: &mut Frame, app: &mut App, area: Rect) {
             rendered.push(table::render_row(t, row, theme));
             continue;
         }
+        rendered.push(Line::from(highlight_line_preview(&app.buffer.lines[row], theme, inner.width)));
+    }
+    frame.render_widget(Paragraph::new(rendered), inner);
+}
 
+fn draw_edit_plain(
+    frame: &mut Frame,
+    app: &mut App,
+    inner: Rect,
+    theme: &crate::config::ThemeConfig,
+    height: usize,
+    total: usize,
+    num_width: u16,
+    show_gutter: bool,
+    show_margin: bool,
+    gutter_w: u16,
+) {
+    let text_width = inner.width.saturating_sub(gutter_w);
+    app.buffer.ensure_visible_x(text_width);
+
+    let mut rendered: Vec<Line> = Vec::with_capacity(height);
+    let scroll = app.buffer.scroll;
+    for row in scroll..(scroll + height).min(total) {
         let mut spans = Vec::new();
         if show_gutter {
             spans.push(Span::styled(
@@ -99,9 +130,7 @@ fn draw_editor(frame: &mut Frame, app: &mut App, area: Rect) {
         if show_margin {
             spans.push(Span::styled("│ ", Style::default().fg(theme.margin_line.resolve())));
         }
-        let content_spans = if is_preview {
-            highlight_line_preview(&app.buffer.lines[row], theme, inner.width)
-        } else if app.buffer.scroll_x > 0 {
+        let content_spans = if app.buffer.scroll_x > 0 {
             let skip = char_index_at_display_col(&app.buffer.lines[row], app.buffer.scroll_x);
             let visible: String = app.buffer.lines[row].chars().skip(skip).collect();
             let base = highlight_line(&visible, theme);
@@ -115,22 +144,83 @@ fn draw_editor(frame: &mut Frame, app: &mut App, area: Rect) {
         spans.extend(content_spans);
         rendered.push(Line::from(spans));
     }
+    frame.render_widget(Paragraph::new(rendered), inner);
 
-    let paragraph = Paragraph::new(rendered);
-    let paragraph = if app.config.editor.word_wrap {
-        paragraph.wrap(Wrap { trim: false })
-    } else {
-        paragraph
-    };
-    frame.render_widget(paragraph, inner);
+    let cursor_display_col =
+        display_width(&app.buffer.lines[app.buffer.cursor_row], app.buffer.cursor_col);
+    let cursor_x = inner.x + gutter_w + cursor_display_col.saturating_sub(app.buffer.scroll_x);
+    let cursor_y = inner.y + (app.buffer.cursor_row - scroll) as u16;
+    frame.set_cursor_position((cursor_x, cursor_y));
+}
 
-    if !is_preview {
-        let cursor_display_col =
-            display_width(&app.buffer.lines[app.buffer.cursor_row], app.buffer.cursor_col);
-        let cursor_x = inner.x + gutter_w + cursor_display_col.saturating_sub(app.buffer.scroll_x);
-        let cursor_y = inner.y + (app.buffer.cursor_row - scroll) as u16;
-        frame.set_cursor_position((cursor_x, cursor_y));
+fn draw_edit_wrapped(
+    frame: &mut Frame,
+    app: &mut App,
+    inner: Rect,
+    theme: &crate::config::ThemeConfig,
+    height: usize,
+    num_width: u16,
+    show_gutter: bool,
+    show_margin: bool,
+    gutter_w: u16,
+) {
+    app.buffer.scroll_x = 0;
+    let text_width = inner.width.saturating_sub(gutter_w).max(1);
+
+    let mut screen_rows: Vec<(usize, usize, usize)> = Vec::new();
+    let mut cursor_screen_idx = 0usize;
+    for (br, line) in app.buffer.lines.iter().enumerate() {
+        let segments = wrap_segments(line, text_width);
+        for (cs, ce) in segments {
+            if br == app.buffer.cursor_row && app.buffer.cursor_col >= cs
+                && (app.buffer.cursor_col < ce || ce == line.chars().count())
+            {
+                cursor_screen_idx = screen_rows.len();
+            }
+            screen_rows.push((br, cs, ce));
+        }
     }
+
+    ensure_visible_generic(&mut app.buffer.scroll, cursor_screen_idx, height.max(1));
+    let scroll = app.buffer.scroll.min(screen_rows.len().saturating_sub(1));
+
+    let mut rendered: Vec<Line> = Vec::with_capacity(height);
+    for idx in scroll..(scroll + height).min(screen_rows.len()) {
+        let (br, cs, ce) = screen_rows[idx];
+        let is_first = cs == 0;
+
+        let mut spans = Vec::new();
+        if show_gutter {
+            let label = if is_first {
+                format!("{:>width$} ", br + 1, width = num_width as usize)
+            } else {
+                " ".repeat(num_width as usize + 1)
+            };
+            spans.push(Span::styled(label, Style::default().fg(theme.line_number.resolve())));
+        }
+        if show_margin {
+            let marker = if is_first { "│ " } else { "  " };
+            spans.push(Span::styled(marker, Style::default().fg(theme.margin_line.resolve())));
+        }
+
+        let segment: String = app.buffer.lines[br].chars().skip(cs).take(ce - cs).collect();
+        let base = highlight_line(&segment, theme);
+        let sel = selection_cols_for_row(&app.buffer, br).and_then(|(s, e)| {
+            let s2 = s.max(cs);
+            let e2 = e.min(ce);
+            if s2 < e2 { Some((s2 - cs, e2 - cs)) } else { None }
+        });
+        spans.extend(apply_selection(base, sel, theme));
+        rendered.push(Line::from(spans));
+    }
+    frame.render_widget(Paragraph::new(rendered), inner);
+
+    let (cur_br, cur_cs, _) = screen_rows.get(cursor_screen_idx).copied().unwrap_or((0, 0, 0));
+    let segment: String = app.buffer.lines[cur_br].chars().skip(cur_cs).collect();
+    let cursor_col_in_seg = app.buffer.cursor_col.saturating_sub(cur_cs);
+    let cursor_x = inner.x + gutter_w + display_width(&segment, cursor_col_in_seg);
+    let cursor_y = inner.y + (cursor_screen_idx - scroll) as u16;
+    frame.set_cursor_position((cursor_x, cursor_y));
 }
 
 fn draw_statusbar(frame: &mut Frame, app: &App, area: Rect) {
@@ -157,7 +247,7 @@ fn draw_statusbar(frame: &mut Frame, app: &App, area: Rect) {
     frame.render_widget(Paragraph::new(Line::from(Span::styled(text, style))), area);
 }
 
-fn selection_cols_for_row(buffer: &crate::editor::Buffer, row: usize) -> Option<(usize, usize)> {
+fn selection_cols_for_row(buffer: &Buffer, row: usize) -> Option<(usize, usize)> {
     let ((sr, sc), (er, ec)) = buffer.selection_range()?;
     if row < sr || row > er {
         return None;
