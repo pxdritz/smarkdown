@@ -22,21 +22,33 @@ pub fn highlight_line<'a>(line: &'a str, theme: &ThemeConfig) -> Vec<Span<'a>> {
     highlight_inline(line, theme, base, true)
 }
 
-pub fn highlight_line_preview(line: &str, theme: &ThemeConfig) -> Vec<Span<'static>> {
+pub fn highlight_line_preview(line: &str, theme: &ThemeConfig, width: u16) -> Vec<Span<'static>> {
     let trimmed = line.trim_start();
     let fg = theme.fg.resolve();
     let base = Style::default().fg(fg);
 
     if let Some(rest) = trimmed.strip_prefix("###") {
-        return vec![owned(rest.trim(), Style::default().fg(theme.heading.resolve()).add_modifier(Modifier::BOLD))];
+        let text = format!("▸ {}", rest.trim());
+        return vec![owned(&text, Style::default().fg(theme.heading.resolve()).add_modifier(Modifier::BOLD))];
     }
     if let Some(rest) = trimmed.strip_prefix("##") {
-        return vec![owned(rest.trim(), Style::default().fg(theme.heading.resolve()).add_modifier(Modifier::BOLD | Modifier::UNDERLINED))];
+        let text = format!("── {} ──", rest.trim());
+        return vec![owned(
+            &text,
+            Style::default().fg(theme.heading.resolve()).add_modifier(Modifier::BOLD | Modifier::UNDERLINED),
+        )];
     }
     if let Some(rest) = trimmed.strip_prefix('#') {
+        let text = rest.trim().to_uppercase();
+        let padded = format!(" {text} ");
+        let width = width.max(padded.chars().count() as u16);
+        let extra = width - padded.chars().count() as u16;
+        let left = extra / 2;
+        let right = extra - left;
+        let banner = format!("{}{}{}", " ".repeat(left as usize), padded, " ".repeat(right as usize));
         return vec![owned(
-            &format!("» {}", rest.trim()),
-            Style::default().fg(theme.heading.resolve()).add_modifier(Modifier::BOLD | Modifier::UNDERLINED),
+            &banner,
+            Style::default().fg(theme.heading.resolve()).add_modifier(Modifier::BOLD | Modifier::REVERSED),
         )];
     }
     if let Some(rest) = trimmed.strip_prefix('>') {

@@ -100,7 +100,7 @@ fn draw_editor(frame: &mut Frame, app: &mut App, area: Rect) {
             spans.push(Span::styled("│ ", Style::default().fg(theme.margin_line.resolve())));
         }
         let content_spans = if is_preview {
-            highlight_line_preview(&app.buffer.lines[row], theme)
+            highlight_line_preview(&app.buffer.lines[row], theme, inner.width)
         } else if app.buffer.scroll_x > 0 {
             let skip = char_index_at_display_col(&app.buffer.lines[row], app.buffer.scroll_x);
             let visible: String = app.buffer.lines[row].chars().skip(skip).collect();
